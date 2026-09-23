@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Operación Espejo · Flujo del dinero en 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe-v1.6.0.min.js"></script>
+<style>
+  :root {
+    --tinta: #0f1a2c;
+    --papel: #ece5d3;
+    --grafito: #2b3445;
+    --oro: #f2b134;
+    --alerta: #d8434a;
+    font-family: "Archivo", "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  html, body { margin: 0; height: 100%; background: var(--tinta); }
+  #hud {
+    position: fixed; z-index: 10000;
+    top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px;
+    width: min(330px, calc(100vw - 24px));
+    background: var(--papel); color: var(--grafito);
+    border-left: 6px solid var(--oro);
+    padding: 14px 16px; border-radius: 4px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.35);
+  }
+  #hud h1 { font-size: 19px; font-weight: 800; margin: 0 0 4px; line-height: 1.2; }
+  #hud p { font-size: 13.5px; margin: 0 0 10px; line-height: 1.45; }
+  #hud .fila { display: flex; flex-wrap: wrap; gap: 6px; }
+  #hud button {
+    font: 600 13px "Archivo", Arial, sans-serif;
+    border: 1.5px solid var(--grafito); background: transparent; color: var(--grafito);
+    padding: 6px 9px; border-radius: 3px; cursor: pointer;
+  }
+  #hud button.activo { background: var(--grafito); color: var(--papel); }
+  #hud button.ia { border-color: var(--alerta); color: var(--alerta); }
+  #hud button.ia.activo { background: var(--alerta); color: #fff; }
+  #hud button:focus-visible { outline: 3px solid var(--oro); outline-offset: 2px; }
+  #hud .teclas { font-size: 12px; opacity: .75; margin: 10px 0 0; }
+  #hud .cerrar { position: absolute; top: 6px; right: 8px; border: 0; font-size: 18px; padding: 2px 6px; }
+
+  /* ---- Pantallas estrechas (celular vertical) ---- */
+  #ficha { display: none; }
+  body.estrecho #hud { left: 8px; right: 8px; width: auto; padding: 10px 12px; }
+  body.estrecho #hud p { display: none; }
+  body.estrecho #hud h1 { font-size: 16px; margin-bottom: 8px; }
+  body.estrecho #hud button { font-size: 12px; padding: 5px 7px; }
+  body.estrecho #hud .cerrar { font-size: 18px; }
+  body.estrecho #ficha.abierta {
+    display: block; position: fixed; z-index: 10001;
+    left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    max-height: 40vh; overflow-y: auto;
+    background: var(--papel); color: var(--grafito);
+    border-left: 6px solid var(--acento, var(--oro));
+    padding: 12px 14px 14px; border-radius: 4px;
+    box-shadow: 0 -6px 24px rgba(0,0,0,.35);
+    font-size: 14px; line-height: 1.45;
+  }
+  #ficha h2 { font-size: 17px; margin: 0 0 2px; font-weight: 800; padding-right: 28px; }
+  #ficha .meta { font-size: 12px; opacity: .7; margin: 0 0 8px; }
+  #ficha .barra { height: 8px; background: #d4ccb6; border-radius: 4px; margin: 4px 0 10px; }
+  #ficha .barra span { display: block; height: 100%; border-radius: 4px; }
+  #ficha ul, #ficha ol { margin: 0; padding-left: 20px; }
+  #ficha li { margin-bottom: 4px; }
+  #ficha .cerrar-ficha { position: absolute; top: 6px; right: 8px; border: 0; background: transparent; font-size: 20px; color: var(--grafito); cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div id="hud" role="region" aria-label="Controles de la demostración">
+  <button class="cerrar" aria-label="Ocultar panel" onclick="this.parentElement.style.display='none'">×</button>
+  <h1>Operación Espejo</h1>
+  <p>Sigue el dinero desde su origen ilícito hasta el beneficiario final. Haz clic en cualquier nodo para ver su expediente.</p>
+  <div class="fila">
+    <button data-fase="1">1 Colocación</button>
+    <button data-fase="2">2 Estratificación</button>
+    <button data-fase="3">3 Integración</button>
+    <button data-fase="ia" class="ia">Detectar con IA</button>
+    <button data-fase="0">Reiniciar</button>
+    <button id="centrar">Centrar vista</button>
+  </div>
+  <p class="teclas">Teclado: 1, 2, 3, I (IA), R (reiniciar), C (centrar vista). WASD y arrastrar para moverte. En las gafas, usa el botón VR o AR de abajo a la derecha.</p>
+</div>
+
+<div id="ficha" role="dialog" aria-live="polite"></div>
+
+<div id="errores" role="alert" style="display:none;position:fixed;z-index:11;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom, 0px));background:#d8434a;color:#fff;font:600 13px Archivo,Arial,sans-serif;padding:10px 12px;border-radius:4px;white-space:pre-wrap"></div>
+
+<a-scene renderer="antialias: true; colorManagement: true"
+         cursor="rayOrigin: mouse" raycaster="objects: .clickable"
+         xr-mode-ui="enterVREnabled: true; enterAREnabled: true">
+  <a-sky color="#0f1a2c" hide-on-enter-ar></a-sky>
+  <a-entity piso-cuadricula hide-on-enter-ar></a-entity>
+  <a-entity light="type: ambient; intensity: 0.7"></a-entity>
+  <a-entity light="type: directional; intensity: 0.9" position="1 4 3"></a-entity>
+
+  <a-entity id="rig">
+    <a-camera position="0 1.6 0" wasd-controls="acceleration: 12" look-controls="magicWindowTrackingEnabled: false; touchEnabled: true"></a-camera>
+    <a-entity laser-controls="hand: right" raycaster="objects: .clickable; far: 20; lineColor: #f2b134"></a-entity>
+    <a-entity laser-controls="hand: left" raycaster="objects: .clickable; far: 20; lineColor: #f2b134"></a-entity>
+  </a-entity>
+
+  <a-entity id="caso" position="0 0 -3" caso-lavado></a-entity>
+</a-scene>
+
+<script>
+const THREE = AFRAME.THREE;
+const FUENTE = '"Archivo", "Segoe UI", Roboto, Arial, sans-serif';
+
+/* ---------- Datos del caso (ficticio) ---------- */
+const TIPOS = {
+  origen:       { color: '#d8434a', nombre: 'Origen ilícito' },
+  persona:      { color: '#5b9bd5', nombre: 'Persona natural' },
+  financiera:   { color: '#3fbcc4', nombre: 'Entidad financiera' },
+  empresa:      { color: '#e39a2d', nombre: 'Empresa' },
+  offshore:     { color: '#9b7fd4', nombre: 'Sociedad offshore' },
+  activo:       { color: '#4cb782', nombre: 'Activo / negocio legal' },
+  beneficiario: { color: '#e36fa6', nombre: 'Beneficiario final' }
+};
+const FASES = ['Origen', 'Colocación', 'Estratificación', 'Integración'];
+
+const NODOS = [
+  { id: 'origen', nombre: 'Origen ilícito', sub: 'Red de contrabando', tipo: 'origen', pos: [0, 0.5, 0.3], fase: 0, riesgo: 100,
+    detalle: ['Ingresos en efectivo por contrabando de mercancía.', 'Monto estimado: $1.450 millones (COP).', 'El dinero no se puede usar sin antes "limpiarlo".'] },
+  { id: 'pA', nombre: 'Persona A', sub: 'Depositante', tipo: 'persona', pos: [-1.3, 1.0, 0.4], fase: 1, riesgo: 81,
+    detalle: ['12 depósitos en efectivo de $9,8 M cada uno.', 'Todos justo debajo del umbral de reporte de efectivo ($10 M).', 'Total: $117,6 M en tres semanas.'] },
+  { id: 'pB', nombre: 'Persona B', sub: 'Depositante', tipo: 'persona', pos: [-0.45, 1.0, 0.6], fase: 1, riesgo: 84,
+    detalle: ['15 depósitos en 4 sucursales distintas.', 'Total: $147 M.', 'Comparte teléfono y dirección con el beneficiario final.'] },
+  { id: 'pC', nombre: 'Persona C', sub: 'Depositante', tipo: 'persona', pos: [0.45, 1.0, 0.6], fase: 1, riesgo: 76,
+    detalle: ['Sin actividad económica declarada.', 'Recibe y transfiere el mismo día.', 'Total movido: $95 M.'] },
+  { id: 'cc', nombre: 'Casa de cambio', sub: 'Compra de divisas', tipo: 'financiera', pos: [1.3, 1.0, 0.4], fase: 1, riesgo: 72,
+    detalle: ['Convierte $620 M a dólares en efectivo.', 'Operaciones con documentos de terceros.', 'Sin verificación del origen de fondos.'] },
+  { id: 'f1', nombre: 'Comercializadora del Valle SAS', sub: 'Empresa fachada', tipo: 'empresa', pos: [-1.0, 1.6, -0.2], fase: 2, riesgo: 92,
+    detalle: ['Constituida hace 5 meses con capital de $1 M.', 'Ventas reportadas: $480 M.', 'Sin empleados ni bodega registrada.', 'Emite facturas de "exportación" a la offshore.'] },
+  { id: 'f2', nombre: 'Importadora Pacífico SAS', sub: 'Empresa fachada', tipo: 'empresa', pos: [0.1, 1.65, -0.55], fase: 2, riesgo: 86,
+    detalle: ['Mismo representante legal que la Comercializadora.', 'Paga importaciones sobrefacturadas un 300 %.', 'Presta dinero sin intereses a empresas vinculadas.'] },
+  { id: 'off', nombre: 'Offshore Panamá Ltd', sub: 'Sociedad en el exterior', tipo: 'offshore', pos: [1.1, 1.6, -0.2], fase: 2, riesgo: 95,
+    detalle: ['Accionistas ocultos mediante testaferros.', 'Recibe $1.100 M y los reenvía en menos de 48 horas.', 'Jurisdicción con baja cooperación judicial.'] },
+  { id: 'inm', nombre: 'Inmobiliaria Los Farallones', sub: 'Negocio legal', tipo: 'activo', pos: [-0.8, 2.2, 0.1], fase: 3, riesgo: 62,
+    detalle: ['Recibe $800 M como "inversión extranjera".', 'Compra tres apartamentos de lujo.', 'Los ingresos por arriendo ya parecen legales.'] },
+  { id: 'aut', nombre: 'Autos Premium', sub: 'Concesionario', tipo: 'activo', pos: [0.8, 2.2, 0.1], fase: 3, riesgo: 58,
+    detalle: ['Venta de flota por $300 M a la Comercializadora.', 'Vehículos registrados a nombre de terceros.'] },
+  { id: 'ben', nombre: 'Beneficiario final', sub: '¿Quién controla todo?', tipo: 'beneficiario', pos: [0, 2.75, 0.25], fase: 3, riesgo: 98,
+    detalle: ['Recibe dividendos y usa los bienes.', 'No aparece en ningún documento formal.', 'Vinculado a la Persona B por teléfono y dirección.'] }
+];
+
+const ARISTAS = [
+  ['origen', 'pA', 1, true], ['origen', 'pB', 1, true], ['origen', 'pC', 1, true], ['origen', 'cc', 1, true],
+  ['pA', 'f1', 2, true], ['pB', 'f1', 2, true], ['pC', 'f2', 2, true], ['cc', 'off', 2, true],
+  ['f1', 'off', 2, true], ['f2', 'f1', 2, false], ['off', 'f2', 2, true],
+  ['off', 'inm', 3, false], ['f1', 'aut', 3, false], ['inm', 'ben', 3, true], ['aut', 'ben', 3, true]
+].map(([de, a, fase, sospechosa]) => ({ de, a, fase, sospechosa }));
+
+const HALLAZGOS_IA = [
+  'Fraccionamiento: 27 depósitos entre $9,5 y $9,9 M.',
+  'Circularidad: el dinero regresa a la Importadora vía la offshore.',
+  'Empresas de 5 meses con ventas 480 veces su capital.',
+  'Permanencia menor a 48 h en la cuenta offshore.',
+  'Vínculo oculto: Persona B y el beneficiario final.'
+];
+
+/* ---------- Reporte de errores en pantalla ---------- */
+function reportar(donde, err) {
+  console.error(donde, err);
+  const box = document.getElementById('errores');
+  if (!box || box.dataset.visto) return;
+  box.dataset.visto = '1';
+  box.style.display = 'block';
+  box.textContent = `Error en ${donde}: ${err && err.message ? err.message : err}`;
+}
+
+/* ---------- Ficha HTML para celular ---------- */
+function ficha(html, acento) {
+  const f = document.getElementById('ficha');
+  if (!html) { f.classList.remove('abierta'); f.innerHTML = ''; return; }
+  f.style.setProperty('--acento', acento || '#f2b134');
+  f.innerHTML = '<button class="cerrar-ficha" aria-label="Cerrar ficha">×</button>' + html;
+  f.querySelector('.cerrar-ficha').onclick = () => ficha(null);
+  f.classList.add('abierta');
+}
+
+/* ---------- Utilidades de dibujo ---------- */
+function texturaCanvas(w, h) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const tex = new THREE.CanvasTexture(canvas);
+  if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return { canvas, ctx: canvas.getContext('2d'), tex };
+}
+function rect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function envolver(ctx, texto, anchoMax) {
+  const palabras = texto.split(' '); const lineas = []; let linea = '';
+  for (const p of palabras) {
+    const prueba = linea ? linea + ' ' + p : p;
+    if (ctx.measureText(prueba).width > anchoMax && linea) { lineas.push(linea); linea = p; }
+    else linea = prueba;
+  }
+  if (linea) lineas.push(linea);
+  return lineas;
+}
+function colorRiesgo(r) { return r >= 80 ? '#d8434a' : r >= 65 ? '#e39a2d' : '#4cb782'; }
+function planoTexto(w, h, pxW, pxH, dibujar) {
+  const t = texturaCanvas(pxW, pxH);
+  dibujar(t.ctx, pxW, pxH);
+  t.tex.needsUpdate = true;
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: t.tex, transparent: true, depthWrite: false }));
+  mesh.userData.lienzo = t;
+  return mesh;
+}
+function geometria(tipo) {
+  switch (tipo) {
+    case 'origen': return new THREE.OctahedronGeometry(0.13);
+    case 'persona': return new THREE.SphereGeometry(0.08, 28, 18);
+    case 'financiera': return new THREE.CylinderGeometry(0.075, 0.075, 0.15, 28);
+    case 'empresa': return new THREE.BoxGeometry(0.15, 0.15, 0.15);
+    case 'offshore': return new THREE.DodecahedronGeometry(0.11);
+    case 'activo': return new THREE.CylinderGeometry(0.1, 0.1, 0.07, 6);
+    default: return new THREE.IcosahedronGeometry(0.13);
+  }
+}
+
+/* ---------- Componentes ---------- */
+AFRAME.registerComponent('piso-cuadricula', {
+  init() {
+    const g = new THREE.GridHelper(30, 60, 0x2f4466, 0x1c2a40);
+    this.el.setObject3D('grid', g);
+  }
+});
+
+AFRAME.registerComponent('caso-lavado', {
+  init() {
+    this.fase = 0; this.ia = false; this.sel = null;
+    this.nodos = {}; this.aristas = []; this.botones = [];
+    this.camPos = new THREE.Vector3();
+    const listo = document.fonts ? document.fonts.load('800 40px Archivo').catch(() => {}) : Promise.resolve();
+    listo.then(() => {
+      try { this.construir(); } catch (err) { reportar('construir la escena', err); }
+    });
+  },
+
+  construir() {
+    const root = this.el;
+
+    // Anillos de nivel y rótulos de fase
+    this.niveles = [];
+    [[1.0, 'Colocación'], [1.6, 'Estratificación'], [2.2, 'Integración']].forEach(([y, nombre], i) => {
+      const anillo = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.52, 72),
+        new THREE.MeshBasicMaterial({ color: 0xf2b134, transparent: true, opacity: 0, side: THREE.DoubleSide }));
+      anillo.rotation.x = -Math.PI / 2; anillo.position.y = y - 0.1;
+      const rotulo = planoTexto(0.55, 0.12, 512, 112, (ctx, w, h) => {
+        ctx.fillStyle = '#f2b134'; ctx.font = `800 54px ${FUENTE}`; ctx.textBaseline = 'middle';
+        ctx.fillText(`${i + 1}  ${nombre}`, 8, h / 2);
+      });
+      rotulo.position.set(-1.8, y - 0.02, 0.2);
+      rotulo.rotation.y = 0.35;
+      rotulo.material.opacity = 0;
+      const g = new THREE.Group(); g.add(anillo); g.add(rotulo);
+      root.object3D.add(g);
+      this.niveles.push({ anillo, rotulo, fase: i + 1 });
+    });
+
+    // Título
+    const titulo = planoTexto(1.9, 0.26, 1400, 190, (ctx, w, h) => {
+      ctx.fillStyle = '#ece5d3'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = `800 84px ${FUENTE}`; ctx.fillText('Operación Espejo', w / 2, 70);
+      ctx.font = `400 44px ${FUENTE}`; ctx.fillStyle = '#9fb0c9';
+      ctx.fillText('Sigue el dinero hasta el beneficiario final', w / 2, 148);
+    });
+    titulo.position.set(0, 3.3, 0);
+    root.object3D.add(titulo);
+
+    // Nodos
+    NODOS.forEach(n => {
+      const el = document.createElement('a-entity');
+      el.setAttribute('position', n.pos.join(' '));
+      el.classList.add('clickable');
+      const grupo = new THREE.Group();
+      const mat = new THREE.MeshStandardMaterial({ color: TIPOS[n.tipo].color, emissive: TIPOS[n.tipo].color, emissiveIntensity: 0.25, roughness: 0.35, metalness: 0.25 });
+      const mesh = new THREE.Mesh(geometria(n.tipo), mat);
+      grupo.add(mesh);
+      const etiqueta = planoTexto(0.5, 0.15, 520, 156, () => {});
+      etiqueta.position.y = 0.2;
+      grupo.add(etiqueta);
+      grupo.scale.setScalar(0.0001);
+      el.setObject3D('mesh', grupo);
+      root.appendChild(el);
+      const nodo = { ...n, el, grupo, mesh, mat, etiqueta, escala: 0.0001, hover: false,
+        v: new THREE.Vector3(...n.pos) };
+      this.dibujarEtiqueta(nodo);
+      el.addEventListener('mouseenter', () => { nodo.hover = true; });
+      el.addEventListener('mouseleave', () => { nodo.hover = false; });
+      el.addEventListener('click', () => { if (this.visible(nodo)) this.seleccionar(nodo.id); });
+      this.nodos[n.id] = nodo;
+    });
+
+    // Aristas y partículas de dinero
+    const grupoAristas = new THREE.Group();
+    const arriba = new THREE.Vector3(0, 1, 0);
+    ARISTAS.forEach(a => {
+      const p1 = this.nodos[a.de].v, p2 = this.nodos[a.a].v;
+      const dir = new THREE.Vector3().subVectors(p2, p1);
+      const largo = dir.length();
+      const tubo = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, largo, 8),
+        new THREE.MeshBasicMaterial({ color: 0x9fb0c9, transparent: true, opacity: 0 }));
+      tubo.position.copy(p1).addScaledVector(dir, 0.5);
+      tubo.quaternion.setFromUnitVectors(arriba, dir.clone().normalize());
+      grupoAristas.add(tubo);
+      const particulas = [0, 0.33, 0.66].map(off => {
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.02, 12, 8),
+          new THREE.MeshBasicMaterial({ color: 0xf2b134 }));
+        p.visible = false; p.userData.off = off; grupoAristas.add(p); return p;
+      });
+      this.aristas.push({ ...a, p1, p2, tubo, particulas, opacidad: 0 });
+    });
+    root.setObject3D('aristas', grupoAristas);
+
+    // Panel de expediente
+    this.panel = planoTexto(1.1, 0.8, 1100, 800, () => {});
+    this.panel.position.set(2.35, 1.75, 0.3);
+    this.panel.rotation.y = -0.6;
+    root.object3D.add(this.panel);
+
+    // Botones 3D
+    const defs = [['1  Colocación', 1], ['2  Estratificación', 2], ['3  Integración', 3], ['Detectar con IA', 'ia'], ['Reiniciar', 0]];
+    defs.forEach(([texto, accion], i) => {
+      const el = document.createElement('a-entity');
+      el.setAttribute('position', `-2.35 ${2.25 - i * 0.2} 0.3`);
+      el.setAttribute('rotation', '0 34 0');
+      el.classList.add('clickable');
+      const plano = planoTexto(0.62, 0.15, 620, 150, () => {});
+      el.setObject3D('mesh', plano);
+      root.appendChild(el);
+      const boton = { texto, accion, plano, el, hover: false };
+      el.addEventListener('mouseenter', () => { boton.hover = true; this.dibujarBoton(boton); });
+      el.addEventListener('mouseleave', () => { boton.hover = false; this.dibujarBoton(boton); });
+      el.addEventListener('click', () => this.accion(accion));
+      this.botones.push(boton);
+    });
+
+    this.accion(0);
+    this.listo = true;
+    this.ajustarVista();
+    centrarVista();
+    window.addEventListener('resize', () => this.ajustarVista());
+    this.el.sceneEl.addEventListener('enter-vr', () => setTimeout(() => this.ajustarVista(), 50));
+    this.el.sceneEl.addEventListener('exit-vr', () => setTimeout(() => this.ajustarVista(), 50));
+    window.casoListo && window.casoListo(this);
+  },
+
+  visible(n) { return n.fase <= this.fase; },
+
+  // Encuadra la escena según el tamaño de la pantalla (fuera de VR/AR)
+  ajustarVista() {
+    const escena = this.el.sceneEl;
+    const enXR = escena.is('vr-mode') || escena.is('ar-mode');
+    const aspecto = window.innerWidth / Math.max(1, window.innerHeight);
+    this.estrecho = !enXR && aspecto < 1;
+    document.body.classList.toggle('estrecho', this.estrecho);
+    this.panel.visible = !this.estrecho;
+    this.botones.forEach(b => {
+      b.el.object3D.visible = !this.estrecho;
+      b.el.classList.toggle('clickable', !this.estrecho);
+    });
+    if (!this.estrecho) ficha(null);
+    if (enXR) return;
+    const cam = document.querySelector('a-camera');
+    const fov = ((cam.getAttribute('camera') || {}).fov || 80) * Math.PI / 180;
+    const tanH = Math.tan(fov / 2) * aspecto;
+    const mitad = this.estrecho ? 1.8 : 2.95;
+    const d = Math.max(3, mitad / tanH);
+    cam.setAttribute('position', `0 ${this.estrecho ? 1.8 : 1.6} ${(d - 3).toFixed(2)}`);
+  },
+
+  // Si el bucle de animación no está corriendo, deja la escena en su estado final
+  estadoFinal() {
+    Object.values(this.nodos).forEach(n => {
+      n.escala = this.visible(n) ? 1 : 0.0001;
+      n.grupo.scale.setScalar(n.escala);
+    });
+    this.aristas.forEach(e => {
+      const vis = e.fase <= this.fase;
+      e.opacidad = !vis ? 0 : this.ia ? (e.sospechosa ? 0.95 : 0.15) : 0.55;
+      e.tubo.material.opacity = e.opacidad;
+    });
+    this.niveles.forEach(nv => {
+      const on = this.fase >= nv.fase ? 1 : 0;
+      nv.anillo.material.opacity = on * 0.35; nv.rotulo.material.opacity = on;
+    });
+  },
+
+  accion(a) {
+    if (a === 'ia') { this.fase = 3; this.ia = true; }
+    else { this.fase = a; this.ia = false; if (a === 0) this.sel = null; }
+    Object.values(this.nodos).forEach(n => { this.aplicarColor(n); this.dibujarEtiqueta(n); });
+    this.aristas.forEach(e => {
+      const rojo = this.ia && e.sospechosa;
+      e.tubo.material.color.set(rojo ? 0xd8434a : 0x9fb0c9);
+      e.particulas.forEach(p => p.material.color.set(rojo ? 0xff5a5f : 0xf2b134));
+    });
+    this.botones.forEach(b => this.dibujarBoton(b));
+    const ticksAntes = this.ticks || 0;
+    setTimeout(() => { if ((this.ticks || 0) === ticksAntes) this.estadoFinal(); }, 400);
+    if (this.ia) this.dibujarPanelIA();
+    else if (this.sel && this.visible(this.nodos[this.sel])) this.dibujarPanelNodo(this.nodos[this.sel]);
+    else this.dibujarPanelInicio();
+    document.querySelectorAll('#hud button[data-fase]').forEach(b => {
+      const f = b.dataset.fase;
+      b.classList.toggle('activo', this.ia ? f === 'ia' : (f !== 'ia' && Number(f) === this.fase && this.fase > 0));
+    });
+  },
+
+  seleccionar(id) {
+    this.sel = id;
+    Object.values(this.nodos).forEach(n => this.aplicarColor(n));
+    this.dibujarPanelNodo(this.nodos[id]);
+  },
+
+  aplicarColor(n) {
+    const c = this.ia ? colorRiesgo(n.riesgo) : TIPOS[n.tipo].color;
+    n.mat.color.set(c); n.mat.emissive.set(c);
+    n.mat.emissiveIntensity = n.id === this.sel ? 0.8 : 0.25;
+  },
+
+  dibujarEtiqueta(n) {
+    const { ctx, canvas, tex } = n.etiqueta.userData.lienzo;
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(15,26,44,0.82)'; rect(ctx, 4, 4, w - 8, h - 8, 14); ctx.fill();
+    ctx.fillStyle = this.ia ? colorRiesgo(n.riesgo) : TIPOS[n.tipo].color;
+    rect(ctx, 4, 4, 12, h - 8, 6); ctx.fill();
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ece5d3';
+    let size = 40; ctx.font = `800 ${size}px ${FUENTE}`;
+    while (ctx.measureText(n.nombre).width > w - 60 && size > 24) { size -= 2; ctx.font = `800 ${size}px ${FUENTE}`; }
+    ctx.fillText(n.nombre, 32, 52);
+    ctx.font = `400 30px ${FUENTE}`; ctx.fillStyle = '#9fb0c9';
+    ctx.fillText(this.ia ? `Riesgo IA: ${n.riesgo}/100` : n.sub, 32, 106);
+    tex.needsUpdate = true;
+  },
+
+  dibujarBoton(b) {
+    const { ctx, canvas, tex } = b.plano.userData.lienzo;
+    const w = canvas.width, h = canvas.height;
+    const activo = b.accion === 'ia' ? this.ia : (!this.ia && b.accion === this.fase && b.accion !== 0);
+    const esIA = b.accion === 'ia';
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = activo ? (esIA ? '#d8434a' : '#ece5d3') : (b.hover ? 'rgba(236,229,211,0.28)' : 'rgba(15,26,44,0.85)');
+    rect(ctx, 4, 4, w - 8, h - 8, 12); ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = esIA ? '#d8434a' : '#ece5d3'; ctx.stroke();
+    ctx.fillStyle = activo ? (esIA ? '#ffffff' : '#0f1a2c') : '#ece5d3';
+    ctx.font = `800 50px ${FUENTE}`; ctx.textBaseline = 'middle';
+    ctx.fillText(b.texto, 34, h / 2 + 2);
+    tex.needsUpdate = true;
+  },
+
+  fondoPanel(ctx, w, h, acento) {
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#ece5d3'; rect(ctx, 6, 6, w - 12, h - 12, 18); ctx.fill();
+    ctx.fillStyle = acento; rect(ctx, 6, 6, 22, h - 12, 10); ctx.fill();
+    ctx.textBaseline = 'alphabetic';
+  },
+
+  dibujarPanelInicio() {
+    const { ctx, canvas, tex } = this.panel.userData.lienzo;
+    const w = canvas.width, h = canvas.height;
+    this.fondoPanel(ctx, w, h, '#f2b134');
+    ficha(null);
+    ctx.fillStyle = '#2b3445'; ctx.font = `800 58px ${FUENTE}`;
+    ctx.fillText('Expediente del caso', 70, 110);
+    ctx.font = `400 38px ${FUENTE}`;
+    const texto = ['Una red de contrabando necesita usar $1.450 millones sin levantar sospechas.',
+      'Avanza por las tres fases del lavado con los botones de la izquierda.',
+      'Apunta a cualquier nodo y presiona el gatillo para abrir su expediente.'];
+    let y = 190;
+    texto.forEach(t => { envolver(ctx, t, w - 150).forEach(l => { ctx.fillText(l, 70, y); y += 52; }); y += 22; });
+    tex.needsUpdate = true;
+  },
+
+  dibujarPanelNodo(n) {
+    const { ctx, canvas, tex } = this.panel.userData.lienzo;
+    const w = canvas.width, h = canvas.height;
+    this.fondoPanel(ctx, w, h, this.ia ? colorRiesgo(n.riesgo) : TIPOS[n.tipo].color);
+    if (this.estrecho) ficha(`<h2>${n.nombre}</h2><p class="meta">${TIPOS[n.tipo].nombre} | Fase: ${FASES[n.fase]}</p>
+      <div>Nivel de riesgo: ${n.riesgo}/100</div><div class="barra"><span style="width:${n.riesgo}%;background:${colorRiesgo(n.riesgo)}"></span></div>
+      <ul>${n.detalle.map(d => `<li>${d}</li>`).join('')}</ul>`, this.ia ? colorRiesgo(n.riesgo) : TIPOS[n.tipo].color);
+    ctx.fillStyle = '#6b7385'; ctx.font = `600 32px ${FUENTE}`;
+    ctx.fillText(`${TIPOS[n.tipo].nombre}   |   Fase: ${FASES[n.fase]}`, 70, 80);
+    ctx.fillStyle = '#2b3445';
+    let size = 58; ctx.font = `800 ${size}px ${FUENTE}`;
+    while (ctx.measureText(n.nombre).width > w - 120 && size > 36) { size -= 2; ctx.font = `800 ${size}px ${FUENTE}`; }
+    ctx.fillText(n.nombre, 70, 155);
+    // Barra de riesgo
+    ctx.font = `600 32px ${FUENTE}`; ctx.fillText(`Nivel de riesgo: ${n.riesgo}/100`, 70, 225);
+    ctx.fillStyle = '#d4ccb6'; rect(ctx, 70, 245, w - 150, 26, 13); ctx.fill();
+    ctx.fillStyle = colorRiesgo(n.riesgo); rect(ctx, 70, 245, (w - 150) * n.riesgo / 100, 26, 13); ctx.fill();
+    // Detalle
+    ctx.fillStyle = '#2b3445'; ctx.font = `400 38px ${FUENTE}`;
+    let y = 340;
+    n.detalle.forEach(d => {
+      const lineas = envolver(ctx, d, w - 190);
+      ctx.fillStyle = TIPOS[n.tipo].color; ctx.beginPath(); ctx.arc(84, y - 12, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#2b3445';
+      lineas.forEach(l => { ctx.fillText(l, 110, y); y += 50; });
+      y += 18;
+    });
+    tex.needsUpdate = true;
+  },
+
+  dibujarPanelIA() {
+    const { ctx, canvas, tex } = this.panel.userData.lienzo;
+    const w = canvas.width, h = canvas.height;
+    this.fondoPanel(ctx, w, h, '#d8434a');
+    if (this.estrecho) ficha(`<h2>5 señales de alerta</h2><p class="meta">Modelo de detección de anomalías</p>
+      <ol>${HALLAZGOS_IA.map(t => `<li>${t}</li>`).join('')}</ol>
+      <p style="margin:8px 0 0;font-weight:800">Conclusión: patrón compatible con lavado de activos. Riesgo global 94/100.</p>`, '#d8434a');
+    ctx.fillStyle = '#d8434a'; ctx.font = `600 32px ${FUENTE}`;
+    ctx.fillText('Modelo de detección de anomalías', 70, 80);
+    ctx.fillStyle = '#2b3445'; ctx.font = `800 56px ${FUENTE}`;
+    ctx.fillText('5 señales de alerta', 70, 150);
+    ctx.font = `400 36px ${FUENTE}`;
+    let y = 225;
+    HALLAZGOS_IA.forEach((t, i) => {
+      ctx.fillStyle = '#d8434a'; ctx.font = `800 36px ${FUENTE}`; ctx.fillText(String(i + 1), 74, y);
+      ctx.fillStyle = '#2b3445'; ctx.font = `400 36px ${FUENTE}`;
+      envolver(ctx, t, w - 200).forEach(l => { ctx.fillText(l, 118, y); y += 46; });
+      y += 14;
+    });
+    ctx.fillStyle = '#2b3445'; ctx.font = `800 38px ${FUENTE}`;
+    envolver(ctx, 'Conclusión: patrón compatible con lavado de activos. Riesgo global 94/100.', w - 150)
+      .forEach(l => { ctx.fillText(l, 70, y + 16); y += 48; });
+    tex.needsUpdate = true;
+  },
+
+  tick(t, dt) {
+    if (!this.listo || this.tickRoto) return;
+    try { this.animar(t, dt); this.ticks = (this.ticks || 0) + 1; }
+    catch (err) { this.tickRoto = true; this.estadoFinal(); reportar('la animación', err); }
+  },
+
+  animar(t, dt) {
+    dt = Math.min(dt || 16, 50) / 1000;
+    this.el.sceneEl.camera.getWorldPosition(this.camPos);
+    const k = Math.min(1, dt * 5);
+
+    Object.values(this.nodos).forEach(n => {
+      const objetivo = this.visible(n) ? 1 : 0.0001;
+      n.escala += (objetivo - n.escala) * k;
+      let s = n.escala * (n.hover ? 1.15 : 1);
+      if (this.ia && n.riesgo >= 80) s *= 1 + 0.09 * Math.sin(t * 0.006);
+      n.grupo.scale.setScalar(Math.max(s, 0.0001));
+      n.mesh.rotation.y += dt * 0.5;
+      n.etiqueta.lookAt(this.camPos);
+    });
+
+    this.aristas.forEach(e => {
+      const visible = e.fase <= this.fase;
+      const objetivo = !visible ? 0 : this.ia ? (e.sospechosa ? 0.95 : 0.15) : 0.55;
+      e.opacidad += (objetivo - e.opacidad) * k;
+      e.tubo.material.opacity = e.opacidad;
+      const vel = this.ia && e.sospechosa ? 0.00045 : 0.00025;
+      e.particulas.forEach(p => {
+        p.visible = e.opacidad > 0.3 && (!this.ia || e.sospechosa);
+        if (!p.visible) return;
+        const f = (t * vel + p.userData.off) % 1;
+        p.position.lerpVectors(e.p1, e.p2, f);
+      });
+    });
+
+    this.niveles.forEach(nv => {
+      const objetivo = this.fase >= nv.fase ? 1 : 0;
+      nv.anillo.material.opacity += (objetivo * 0.35 - nv.anillo.material.opacity) * k;
+      nv.rotulo.material.opacity += (objetivo - nv.rotulo.material.opacity) * k;
+    });
+  }
+});
+
+/* ---------- Controles de escritorio ---------- */
+function centrarVista() {
+  const lc = document.querySelector('a-camera').components['look-controls'];
+  if (!lc) return;
+  if (lc.pitchObject) lc.pitchObject.rotation.x = 0;
+  if (lc.yawObject) lc.yawObject.rotation.y = 0;
+}
+document.getElementById('centrar').addEventListener('click', centrarVista);
+function caso() { return document.querySelector('#caso').components['caso-lavado']; }
+document.querySelectorAll('#hud button[data-fase]').forEach(b => {
+  b.addEventListener('click', () => {
+    const c = caso(); if (!c || !c.listo) return;
+    const f = b.dataset.fase; c.accion(f === 'ia' ? 'ia' : Number(f));
+  });
+});
+window.addEventListener('keydown', e => {
+  const c = caso(); if (!c || !c.listo) return;
+  const k = e.key.toLowerCase();
+  if (['1', '2', '3'].includes(k)) c.accion(Number(k));
+  else if (k === 'i') c.accion('ia');
+  else if (k === 'r') c.accion(0);
+  else if (k === 'c') centrarVista();
+});
+</script>
+</body>
+</html>
