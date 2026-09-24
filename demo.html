@@ -664,9 +664,9 @@ window.addEventListener('keydown', e => {
     return mesh;
   }
   // En gafas, el expediente y los botones se acercan al usuario
-  var CERCA = { red: { p: [1.9, 1.75, 1.1, -0.85], b: [-2.0, 2.5, 0.17, 1.1, 49] },
-                correa: { p: [1.7, 1.65, 0.95, -0.9], b: [-1.9, 2.55, 0.17, 0.95, 50] },
-                espejo: { p: [1.7, 1.6, 1.3, -0.75], b: [-1.8, 2.15, 0.2, 1.3, 42] } };
+  var CERCA = { red: { p: [1.6, 1.95, 1.6, -0.9], b: [-1.6, 2.4, 0.17, 1.9, 55] },
+                correa: { p: [1.5, 1.7, 1.5, -0.95], b: [-1.5, 2.45, 0.17, 1.9, 60] },
+                espejo: { p: [1.5, 1.65, 1.8, -0.8], b: [-1.4, 2.1, 0.2, 2.1, 57] } };
   function acercar() {
     var x = comp(); if (!x) return; var k = CERCA[x.tipo];
     if (x.c.panel) { x.c.panel.position.set(k.p[0], k.p[1], k.p[2]); x.c.panel.rotation.set(0, k.p[3], 0); x.c.panel.scale.setScalar(1.1); }
