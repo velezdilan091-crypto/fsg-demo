@@ -609,5 +609,81 @@ window.addEventListener('keydown', e => {
   else if (k === 'c') centrarVista();
 });
 </script>
+<script>
+/* Interaccion en gafas: boton A o X = siguiente, B o Y = anterior, mirar un boton 1,5 s lo activa, pellizco derecho = siguiente, izquierdo = anterior */
+(function () {
+  var escena = document.querySelector('a-scene');
+  if (!escena) return;
+  function comp() {
+    var r = document.querySelector('#red'), e = document.querySelector('#caso');
+    if (r && r.components['red-vantage'] && r.components['red-vantage'].listo) return { tipo: 'red', c: r.components['red-vantage'] };
+    if (e && e.components['caso-correa'] && e.components['caso-correa'].listo) return { tipo: 'correa', c: e.components['caso-correa'] };
+    if (e && e.components['caso-lavado']) return { tipo: 'espejo', c: e.components['caso-lavado'] };
+    return null;
+  }
+  var SEQ = { red: ['inicio', 'vantage', 'defensoria', 'centros', 'apoderados', 'canales', 'todo', 'alerta'], espejo: [0, 1, 2, 3, 'ia'] };
+  var ultimo = 0;
+  function mover(d) {
+    var ahora = Date.now(); if (ahora - ultimo < 350) return; ultimo = ahora;
+    var x = comp(); if (!x) return;
+    if (x.tipo === 'correa') { x.c.ir(d > 0 ? 'sig' : 'ant'); return; }
+    var s = SEQ[x.tipo];
+    var actual = x.tipo === 'red' ? x.c.modo : (x.c.ia ? 'ia' : x.c.fase);
+    var i = s.indexOf(actual); if (i < 0) i = 0;
+    i = Math.max(0, Math.min(s.length - 1, i + d));
+    x.c.accion(s[i]);
+  }
+  window.__moverEscena = mover;
+  ['abuttondown', 'xbuttondown'].forEach(function (ev) { escena.addEventListener(ev, function () { mover(1); }); });
+  ['bbuttondown', 'ybuttondown'].forEach(function (ev) { escena.addEventListener(ev, function () { mover(-1); }); });
+
+  // Manos: pellizco derecho = siguiente, izquierdo = anterior
+  var rig = document.querySelector('#rig') || escena;
+  ['right', 'left'].forEach(function (lado) {
+    var m = document.createElement('a-entity');
+    m.setAttribute('hand-tracking-controls', 'hand: ' + lado);
+    m.addEventListener('pinchended', function () { mover(lado === 'right' ? 1 : -1); });
+    rig.appendChild(m);
+  });
+
+  var mira = null, aviso = null;
+  function crearAviso(cam) {
+    var THREE = AFRAME.THREE, cv = document.createElement('canvas'); cv.width = 1400; cv.height = 260;
+    var ctx = cv.getContext('2d');
+    ctx.fillStyle = 'rgba(15,26,44,0.92)'; ctx.fillRect(0, 0, 1400, 260);
+    ctx.fillStyle = '#f2b134'; ctx.fillRect(0, 0, 18, 260);
+    ctx.fillStyle = '#ece5d3'; ctx.font = '800 58px Archivo, Arial, sans-serif'; ctx.textBaseline = 'middle';
+    ctx.fillText('Boton A o X: siguiente  |  B o Y: anterior', 50, 80);
+    ctx.font = '500 46px Archivo, Arial, sans-serif'; ctx.fillStyle = '#c9d3e3';
+    ctx.fillText('Mira un boton 1,5 segundos para activarlo', 50, 170);
+    var tex = new THREE.CanvasTexture(cv); if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+    var mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.13), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+    mesh.position.set(0, -0.28, -0.9); mesh.renderOrder = 999;
+    cam.object3D.add(mesh);
+    setTimeout(function () { cam.object3D.remove(mesh); }, 9000);
+    return mesh;
+  }
+  escena.addEventListener('enter-vr', function () {
+    var cam = document.querySelector('a-camera') || escena.camera.el;
+    if (!mira) {
+      mira = document.createElement('a-entity');
+      mira.setAttribute('position', '0 0 -1');
+      mira.setAttribute('geometry', 'primitive: ring; radiusInner: 0.012; radiusOuter: 0.019');
+      mira.setAttribute('material', 'shader: flat; color: #f2b134; transparent: true; opacity: 0.9; depthTest: false');
+      mira.setAttribute('cursor', 'fuse: true; fuseTimeout: 1500; rayOrigin: entity');
+      mira.setAttribute('raycaster', 'objects: .clickable; far: 20');
+      mira.addEventListener('fusing', function () { mira.setAttribute('animation__f', 'property: scale; from: 1 1 1; to: 0.35 0.35 0.35; dur: 1500'); });
+      mira.addEventListener('mouseleave', function () { mira.removeAttribute('animation__f'); mira.object3D.scale.set(1, 1, 1); });
+      mira.addEventListener('click', function () { mira.removeAttribute('animation__f'); mira.object3D.scale.set(1, 1, 1); });
+      cam.appendChild(mira);
+    }
+    aviso = crearAviso(cam);
+  });
+  escena.addEventListener('exit-vr', function () {
+    if (mira && mira.parentNode) mira.parentNode.removeChild(mira);
+    mira = null;
+  });
+})();
+</script>
 </body>
 </html>
